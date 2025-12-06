@@ -10,7 +10,12 @@ import json
 import datetime
 from data_processor import DataProcessor
 from model_trainer import ModelTrainer
-from shap_explainer import SHAPExplainer
+try:
+    from shap_explainer import SHAPExplainer
+    SHAP_AVAILABLE = True
+except (ImportError, OSError) as e:
+    SHAP_AVAILABLE = False
+    print(f"Warning: SHAP not available: {e}")
 from rule_extractor import RuleExtractor
 from generate_sample_data import generate_sample_data
 from flask import send_file
@@ -97,9 +102,12 @@ def train_models():
         # Get best model
         best_name, best_model = trainer.get_best_model()
         
-        # Initialize SHAP explainer with best model
-        shap_explainer = SHAPExplainer(best_model, processor.feature_columns)
-        shap_explainer.create_explainer(X_train[:100])  # Use sample for background
+        # Initialize SHAP explainer with best model (if available)
+        if SHAP_AVAILABLE:
+            shap_explainer = SHAPExplainer(best_model, processor.feature_columns)
+            shap_explainer.create_explainer(X_train[:100])  # Use sample for background
+        else:
+            shap_explainer = None
         
         # Train rule extractor
         rule_extractor.train(X_train.values, y_train.values, processor.feature_columns)
@@ -162,18 +170,34 @@ def get_insights():
         X, y = processor.preprocess(current_data, is_training=True)
         X_train, X_test, y_train, y_test = processor.split_data(X, y)
         
-        # Get SHAP insights
-        shap_insights = shap_explainer.get_insights(X_test[:50], trainer.predict(X_test[:50]))
-        
         # Get rule-based insights
         rule_insights = rule_extractor.generate_insights(
             X_train.values, y_train.values, processor.feature_columns
         )
         
+        # Get SHAP insights if available
+        if SHAP_AVAILABLE and shap_explainer is not None:
+            shap_insights = shap_explainer.get_insights(X_test[:50], trainer.predict(X_test[:50]))
+            feature_importance = shap_insights['feature_importance']
+            feature_interactions = shap_insights['feature_interactions']
+        else:
+            # Fallback: Use model's feature_importances_ if available
+            best_name, best_model = trainer.get_best_model()
+            if hasattr(best_model, 'feature_importances_'):
+                importance = best_model.feature_importances_
+                feature_importance = [
+                    {'feature': feat, 'importance': float(imp)} 
+                    for feat, imp in zip(processor.feature_columns, importance)
+                ]
+                feature_importance.sort(key=lambda x: x['importance'], reverse=True)
+            else:
+                feature_importance = []
+            feature_interactions = []
+        
         # Combine insights
         insights = {
-            'feature_importance': shap_insights['feature_importance'],
-            'feature_interactions': shap_insights['feature_interactions'],
+            'feature_importance': feature_importance,
+            'feature_interactions': feature_interactions,
             'rules': rule_insights['rules'],
             'conditional_probabilities': rule_insights['conditional_probabilities'],
             'feature_combinations': rule_insights['feature_combinations']
