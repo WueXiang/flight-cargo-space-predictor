@@ -358,10 +358,13 @@ def get_status():
         'best_model': trainer.get_best_model()[0] if trained else None
     })
 
+# Initialize directories
+os.makedirs('static', exist_ok=True)
+os.makedirs('uploads', exist_ok=True)
+os.makedirs('models', exist_ok=True)
+os.makedirs('data', exist_ok=True)
+
 if __name__ == '__main__':
-    os.makedirs('static', exist_ok=True)
-    os.makedirs('uploads', exist_ok=True)
-    os.makedirs('models', exist_ok=True)
     app.run(debug=True, port=5001, host='0.0.0.0')
 
 
